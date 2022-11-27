@@ -1,5 +1,5 @@
-import { APIGatewayProxyEvent, APIGatewayProxyResult, Context, DynamoDBRecord, DynamoDBStreamEvent  } from 'aws-lambda';
-
+import { APIGatewayProxyEvent, APIGatewayProxyResult, Context, DynamoDBRecord, DynamoDBStreamEvent } from 'aws-lambda';
+import {ApiGatewayManagementApi, DynamoDB} from 'aws-sdk';
 import { DynamoDBClient, BatchExecuteStatementCommand } from "@aws-sdk/client-dynamodb";
 
 /**
@@ -19,12 +19,56 @@ import { DynamoDBClient, BatchExecuteStatementCommand } from "@aws-sdk/client-dy
  */
 const LOBBY_KEY = "lobby";
 
+
 const client = new DynamoDBClient({ region: "eu-west-3" });
+const ddb = new DynamoDB.DocumentClient({ region: "eu-west-3", apiVersion: '2012-08-10' });
+
 
 // https://www.technicalfeeder.com/2021/02/how-to-check-if-a-object-implements-an-interface-in-typescript/#toc4
 
+// https://github.com/aws-samples/simple-websockets-chat-app/blob/master/onconnect/app.js
+export const lambdaHandlerConnection = async ( event: APIGatewayProxyEvent, context:Context ) => {
+    
+    const connectionId = event.requestContext.connectionId!;
+    
+    const apigwManagementApi = new ApiGatewayManagementApi({
+        apiVersion: '2018-11-29',
+        endpoint: event.requestContext.domainName + '/' + event.requestContext.stage,
+        region: "eu-west-3"
+      });
+      
+      try {
 
-export const lambdaHandlerConnection = async ( event: APIGatewayProxyEvent | DynamoDBStreamEvent, context:Context ) => {
+ 
+        const putParams:DynamoDB.DocumentClient.PutItemInput = {
+            TableName: process.env.TABLE_NAME!,
+            Item: {
+              connectionId: event.requestContext.connectionId
+            }
+          };
+
+        await ddb.put(putParams).promise();
+
+        const params:ApiGatewayManagementApi.PostToConnectionRequest = {
+            Data: JSON.stringify({
+                message : `Connected as ${connectionId}`
+            }),
+            ConnectionId: connectionId
+        };
+        await apigwManagementApi.postToConnection(params).promise();
+
+      } catch ( e:any ) {
+
+        if (e.statusCode === 410) {
+          console.log(`Found stale connection, deleting ${connectionId}`);
+          await ddb.delete({ TableName: process.env.TABLE_NAME!, Key: { connectionId } }).promise();
+        } else {
+          throw e;
+        }
+
+      }
+
+      return { statusCode: 200, body: `Connected with success ${connectionId}` };
     
 };
 
