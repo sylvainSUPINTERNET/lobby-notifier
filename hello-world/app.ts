@@ -26,20 +26,53 @@ const ddb = new DynamoDB.DocumentClient({ region: "eu-west-3", apiVersion: '2012
 
 // https://www.technicalfeeder.com/2021/02/how-to-check-if-a-object-implements-an-interface-in-typescript/#toc4
 
+
+export const lambdaHandlerSendMessage = async ( event: APIGatewayProxyEvent, context:Context ) => {
+
+  const connectionId = event.requestContext.connectionId!;
+
+  const apigwManagementApi = new ApiGatewayManagementApi({
+    apiVersion: '2018-11-29',
+    endpoint: event.requestContext.domainName + '/' + event.requestContext.stage,
+    region: "eu-west-3"
+  });
+
+  let dataReceived:string = "";
+  if ( event.body ) {
+    dataReceived = JSON.parse(event.body).data;
+  }
+
+  try {
+        const params:ApiGatewayManagementApi.PostToConnectionRequest = {
+          Data: JSON.stringify({
+              message : `You send data : ${dataReceived === "" ? "NOTHIN" : dataReceived}`
+          }),
+          ConnectionId: connectionId
+      };
+      await apigwManagementApi.postToConnection(params).promise();
+
+  } catch ( e ) {
+    console.log(e);
+    return { statusCode: 500, body: "Error while sending message" };
+  }
+
+  return {
+    statusCode: 200,
+    body: "Data send"
+  }
+
+
+};
+
 // https://github.com/aws-samples/simple-websockets-chat-app/blob/master/onconnect/app.js
 export const lambdaHandlerConnection = async ( event: APIGatewayProxyEvent, context:Context ) => {
-    
+
+
+    // Note you CANT send message from $connection route ( you will face GoneException 410 error )
     const connectionId = event.requestContext.connectionId!;
-    
-    const apigwManagementApi = new ApiGatewayManagementApi({
-        apiVersion: '2018-11-29',
-        endpoint: event.requestContext.domainName + '/' + event.requestContext.stage,
-        region: "eu-west-3"
-      });
-      
+
       try {
 
- 
         const putParams:DynamoDB.DocumentClient.PutItemInput = {
             TableName: process.env.TABLE_NAME!,
             Item: {
@@ -48,14 +81,6 @@ export const lambdaHandlerConnection = async ( event: APIGatewayProxyEvent, cont
           };
 
         await ddb.put(putParams).promise();
-
-        const params:ApiGatewayManagementApi.PostToConnectionRequest = {
-            Data: JSON.stringify({
-                message : `Connected as ${connectionId}`
-            }),
-            ConnectionId: connectionId
-        };
-        await apigwManagementApi.postToConnection(params).promise();
 
       } catch ( e:any ) {
 
@@ -67,6 +92,7 @@ export const lambdaHandlerConnection = async ( event: APIGatewayProxyEvent, cont
         }
 
       }
+
 
       return { statusCode: 200, body: `Connected with success ${connectionId}` };
     
