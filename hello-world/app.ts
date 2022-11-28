@@ -27,40 +27,80 @@ const ddb = new DynamoDB.DocumentClient({ region: "eu-west-3", apiVersion: '2012
 // https://www.technicalfeeder.com/2021/02/how-to-check-if-a-object-implements-an-interface-in-typescript/#toc4
 
 
-export const lambdaHandlerSendMessage = async ( event: APIGatewayProxyEvent, context:Context ) => {
+export const lambdaHandlerSendMessage = async ( event: APIGatewayProxyEvent | DynamoDBStreamEvent, context:Context ) => {
 
-  const connectionId = event.requestContext.connectionId!;
 
-  const apigwManagementApi = new ApiGatewayManagementApi({
-    apiVersion: '2018-11-29',
-    endpoint: event.requestContext.domainName + '/' + event.requestContext.stage,
-    region: "eu-west-3"
-  });
+  //@ts-ignore
+  if ( event.requestContext ) {
+    //@ts-ignore
+    const connectionId = event.requestContext.connectionId!;
 
-  let dataReceived:string = "";
-  if ( event.body ) {
-    dataReceived = JSON.parse(event.body).data;
+    const apigwManagementApi = new ApiGatewayManagementApi({
+      apiVersion: '2018-11-29',
+      //@ts-ignore
+      endpoint: event.requestContext.domainName + '/' + event.requestContext.stage,
+      region: "eu-west-3"
+    });
+  
+    let dataReceived:string = "";
+      //@ts-ignore
+    if ( event.body ) {
+          //@ts-ignore
+      dataReceived = JSON.parse(event.body).data;
+    }
+  
+    try {
+          const params:ApiGatewayManagementApi.PostToConnectionRequest = {
+            Data: JSON.stringify({
+                message : `You send data : ${dataReceived === "" ? "NOTHIN" : dataReceived}`
+            }),
+            ConnectionId: connectionId
+        };
+        await apigwManagementApi.postToConnection(params).promise();
+  
+    } catch ( e ) {
+      console.log(e);
+      return { statusCode: 500, body: "Error while sending message" };
+    }
+  
+    return {
+      statusCode: 200,
+      body: "Data send"
+    }
   }
 
-  try {
-        const params:ApiGatewayManagementApi.PostToConnectionRequest = {
-          Data: JSON.stringify({
-              message : `You send data : ${dataReceived === "" ? "NOTHIN" : dataReceived}`
-          }),
-          ConnectionId: connectionId
-      };
-      await apigwManagementApi.postToConnection(params).promise();
+  // event from DB strema
+  //@ts-ignore
+    if ( event.Records ) {
+    //   //@ts-ignore
+    //   const records:DynamoDBRecord[] = event.Records;
+    //   const lobby = records[0].dynamodb.Keys[LOBBY_KEY].S;
+    //   const connectionIds = await getConnectionIds(lobby);
 
-  } catch ( e ) {
-    console.log(e);
-    return { statusCode: 500, body: "Error while sending message" };
+    //   const apigwManagementApi = new ApiGatewayManagementApi({
+    //     apiVersion: '2018-11-29',
+    //     //@ts-ignore
+    //     endpoint: event.requestContext.domainName + '/' + event.requestContext.stage,
+    //     region: "eu-west-3"
+    //   });
+
+    //   const params:ApiGatewayManagementApi.PostToConnectionRequest = {
+    //     Data: JSON.stringify({
+    //         message : `You send data : ${dataReceived === "" ? "NOTHIN" : dataReceived}`
+    //     }),
+    //     ConnectionId: connectionId
+    // };
+    console.log("EVENT FROM DB STREAM", event);
+    return {
+      statusCode: 200,
+      body: "ok stream"
+    }
   }
 
   return {
-    statusCode: 200,
-    body: "Data send"
+    statusCode: 500,
+    body: "Error while sending message"
   }
-
 
 };
 

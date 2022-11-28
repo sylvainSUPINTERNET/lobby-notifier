@@ -122,10 +122,17 @@ Resources:
   SendMessageFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: hello-world/
+      CodeUri: hello-world/ 
       Handler: app.lambdaHandlerSendMessage
       MemorySize: 256
       Runtime: nodejs16.x
+      Events:
+        DynamoDBStream:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt ConnectionDDBTable.StreamArn
+            StartingPosition: TRIM_HORIZON
+            BatchSize: 100
       Environment:
         Variables:
           TABLE_NAME: !Ref TableName
