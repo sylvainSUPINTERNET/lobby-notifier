@@ -136,6 +136,12 @@ Resources:
       Environment:
         Variables:
           TABLE_NAME: !Ref TableName
+          # Should look like this wss://yhuw1ppkz7.execute-api.eu-west-3.amazonaws.com/Prod
+          WS_GATEWAY_APP_ID: !Ref SimpleChatWebSocket
+          WS_AWS_REGION: eu-west-3
+          # Can't use !Ref Stage => make circular reference ! ( resource build depends on this one ...)
+          WS_STAGE: Prod
+          # WS_ENDPOINT: !Join [ '', [ 'wss://', !Ref SimpleChatWebSocket, '.execute-api.',!Ref 'AWS::Region','.amazonaws.com/',!Ref 'Stage'] ]
       Policies:
       - DynamoDBCrudPolicy:
           TableName: !Ref TableName
@@ -251,7 +257,7 @@ Resources:
         WriteCapacityUnits: 1
       StreamSpecification:
         StreamViewType: "NEW_AND_OLD_IMAGES"
-      TableName: !Ref TableName # simplechat_connections
+      TableName: !Ref TableName
 
         
 Outputs:

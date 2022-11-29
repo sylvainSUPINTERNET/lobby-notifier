@@ -1,6 +1,7 @@
-import { APIGatewayProxyEvent, APIGatewayProxyResult, Context, DynamoDBRecord, DynamoDBStreamEvent } from 'aws-lambda';
+import { APIGatewayProxyEvent, APIGatewayProxyResult, Context, DynamoDBRecord, DynamoDBStreamEvent, StreamRecord } from 'aws-lambda';
 import {ApiGatewayManagementApi, DynamoDB} from 'aws-sdk';
 import { DynamoDBClient, BatchExecuteStatementCommand } from "@aws-sdk/client-dynamodb";
+import { marshall, unmarshall } from "@aws-sdk/util-dynamodb";
 
 /**
  *
@@ -19,6 +20,8 @@ import { DynamoDBClient, BatchExecuteStatementCommand } from "@aws-sdk/client-dy
  */
 const LOBBY_KEY = "lobby";
 
+const CONNECTION_TABLE_NAME = "simplechat_connections";
+
 
 const client = new DynamoDBClient({ region: "eu-west-3" });
 const ddb = new DynamoDB.DocumentClient({ region: "eu-west-3", apiVersion: '2012-08-10' });
@@ -29,6 +32,9 @@ const ddb = new DynamoDB.DocumentClient({ region: "eu-west-3", apiVersion: '2012
 
 export const lambdaHandlerSendMessage = async ( event: APIGatewayProxyEvent | DynamoDBStreamEvent, context:Context ) => {
 
+
+
+  const apigwWsEndpoint = `${process.env.WS_GATEWAY_APP_ID}.execute-api.${process.env.WS_AWS_REGION}.amazonaws.com/${process.env.WS_STAGE}`;
 
   //@ts-ignore
   if ( event.requestContext ) {
@@ -72,29 +78,98 @@ export const lambdaHandlerSendMessage = async ( event: APIGatewayProxyEvent | Dy
   // event from DB strema
   //@ts-ignore
     if ( event.Records ) {
-    //   //@ts-ignore
-    //   const records:DynamoDBRecord[] = event.Records;
-    //   const lobby = records[0].dynamodb.Keys[LOBBY_KEY].S;
-    //   const connectionIds = await getConnectionIds(lobby);
+      //@ts-ignore
+      const records:DynamoDBRecord[] = event.Records;
 
-    //   const apigwManagementApi = new ApiGatewayManagementApi({
-    //     apiVersion: '2018-11-29',
-    //     //@ts-ignore
-    //     endpoint: event.requestContext.domainName + '/' + event.requestContext.stage,
-    //     region: "eu-west-3"
-    //   });
+      records.forEach( async (record:DynamoDBRecord) => {
 
-    //   const params:ApiGatewayManagementApi.PostToConnectionRequest = {
-    //     Data: JSON.stringify({
-    //         message : `You send data : ${dataReceived === "" ? "NOTHIN" : dataReceived}`
-    //     }),
-    //     ConnectionId: connectionId
-    // };
-    console.log("EVENT FROM DB STREAM", event);
+          if ( record.eventName === "INSERT" ) { 
+            const streamRecord: StreamRecord|undefined = record.dynamodb;
+
+
+            if ( streamRecord ) {
+                if ( streamRecord.Keys ) {
+
+                  // https://dynobase.dev/dynamodb-scan-vs-query/#:~:text=Difference%20Between%20Query%20and%20Scan%20in%20DynamoDB&text=While%20Scan%20is%20%22scanning%22%20through,see%20the%20difference%20in%20speed.
+                  // https://dynobase.dev/dynamodb-pagination/
+                  const insertedId:string = streamRecord.Keys.connectionId.S!;
+
+                  const apigwManagementApi = new ApiGatewayManagementApi({
+                    apiVersion: '2018-11-29',
+                    //@ts-ignore
+                    endpoint: apigwWsEndpoint,
+                    region: "eu-west-3"
+                  });
+
+                  const params:ApiGatewayManagementApi.PostToConnectionRequest = {
+                    Data: JSON.stringify({
+                        message : `Welcome from DB stream ${insertedId}`
+                      }),
+                      ConnectionId: insertedId
+                  };
+                  
+                  try {
+                    await apigwManagementApi.postToConnection(params).promise();
+                  } catch ( e ) {
+                    console.log("Fail to send message", e);
+                  }
+                    
+                    
+                    // await apigwManagementApi.postToConnection().promise();
+                  // if ( streamRecord.Keys![CONNECTION_TABLE_NAME].S === "connectionId" ) {
+                  //   console.log("OK")
+                  //   // TODO : issue how to get endpoint for API gateway when we receive event from dynamodb stream ( to send to all connectionId )
+
+                  //   // https://catalog.us-east-1.prod.workshops.aws/workshops/56ef6f79-74e2-4710-aefb-10b9807057a9/en-US/persisting-data/dynamodb/query-and-scan
+
+                  //   // const params = {
+                  //   //   TABLE_NAME: CONNECTION_TABLE_NAME,
+                  //   //   KeyConditionExpression: "#connectionId != \:connectionIdValue",
+                  //   //   ExpressionAttributeNames: {
+                  //   //     "#connectionId": "connectionId"
+                  //   //   },
+                  //   //   ExpressionAttributeValues: marshall({
+                  //   //       "\:connectionIdValue": "TODO => connectionId ?" 
+                  //   //   })
+                  //   // }
+
+                  //   // console.log("GOES HERE", streamRecord.Keys![CONNECTION_TABLE_NAME].S);
+                  //   // ddb.
+                  //   // const apigwManagementApi = new ApiGatewayManagementApi({
+                  //   //   apiVersion: '2018-11-29',
+                  //   //   //@ts-ignore
+                  //   //   endpoint: event.requestContext.domainName + '/' + event.requestContext.stage,
+                  //   //   region: "eu-west-3"
+                  //   // });
+                
+                  //   // try {
+                  //   //   const params:ApiGatewayManagementApi.PostToConnectionRequest = {
+                  //   //     Data: JSON.stringify({
+                  //   //         message : `You are in lobby ${lobby}`
+                  //   //     }),
+                  //   //     ConnectionId: connectionId
+                  //   // };
+                  //   // await apigwManagementApi.postToConnection(params).promise();
+              
+                  //   // } catch ( e ) {
+                  //   //   console.log(e);
+                  //   //   return { statusCode: 500, body: "Error while sending message" };
+                  //   // }
+
+                  // }
+
+
+                }
+            }
+
+          }
+      });
+
     return {
       statusCode: 200,
       body: "ok stream"
     }
+
   }
 
   return {
@@ -111,7 +186,9 @@ export const lambdaHandlerConnection = async ( event: APIGatewayProxyEvent, cont
     // Note you CANT send message from $connection route ( you will face GoneException 410 error )
     const connectionId = event.requestContext.connectionId!;
 
+
       try {
+        console.log(event.requestContext.domainName + '/' + event.requestContext.stage);
 
         const putParams:DynamoDB.DocumentClient.PutItemInput = {
             TableName: process.env.TABLE_NAME!,
