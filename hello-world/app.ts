@@ -193,7 +193,8 @@ export const lambdaHandlerConnection = async ( event: APIGatewayProxyEvent, cont
         const putParams:DynamoDB.DocumentClient.PutItemInput = {
             TableName: process.env.TABLE_NAME!,
             Item: {
-              connectionId: event.requestContext.connectionId
+              connectionId: event.requestContext.connectionId,
+              lobbyId: "NO_LOBBY"
             }
           };
 
@@ -226,7 +227,6 @@ export const lambdaHandler = async ( event: APIGatewayProxyEvent | DynamoDBStrea
     // Since we don't know what we received ... ( we could use User defined Type Guards, but it's overkill)
     //@ts-ignore 
     if ( event.Records ) {
-        console.log("YOP")
         const ev: DynamoDBStreamEvent = event as DynamoDBStreamEvent;
         console.log(ev);
 
